@@ -278,6 +278,7 @@ if __name__ == "__main__":
                         signature_def
                 },
                 assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS))
+            builder.save()
 
         iteration = 0
         while iteration < 3:
