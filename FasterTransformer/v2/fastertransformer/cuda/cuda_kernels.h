@@ -23,6 +23,18 @@ template <typename T>
 void add_bias_act_kernelLauncher(T* out, const T* bias, int m, int n, cudaStream_t stream);
 
 template <typename T>
+void add_bias_relu_act_kernelLauncher(T *out, const T *bias, int m, int n,
+                                      cudaStream_t stream);
+
+template <typename T>
+void add_bias_kernelLauncher(T *out, const T *input_tensor, const T *bias,
+                             int m, int n, cudaStream_t stream);
+
+template <typename T>
+void input_layernorm_kernelLauncher(T *out, const T *gamma, const T *beta,
+                                    int m, int n, cudaStream_t stream);
+
+template <typename T>
 void add_bias_input_layernorm_kernelLauncher(T* out, const T* input_tensor, 
                                             const T* bias, const T* gamma, 
                                             const T* beta, int m, int n, 

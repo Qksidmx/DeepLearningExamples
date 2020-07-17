@@ -36,10 +36,17 @@ set(tf_decoding_files
   ../cuda/decoding_kernel_check.cpp
 )
 
+set(tf_opennmt_transformer_files
+  opennmt_transformer_op.cc
+  opennmt_transformer_op.cu.cc
+  ../cuda/cuda_kernels.cu
+  ../cuda/open_attention.cu
+)
+
 add_definitions(-D_GLIBCXX_USE_CXX11_ABI=0)
 add_definitions(-DGOOGLE_CUDA=1)
 
-add_library(tf_fastertransformer SHARED ${tf_bert_transformer_files})
+add_library(tf_fastertransformer SHARED ${tf_bert_transformer_files} ${tf_opennmt_transformer_files})
 target_link_libraries(tf_fastertransformer PRIVATE -lcublas -lcudart -ltensorflow_framework)
 add_library(tf_decoder SHARED ${tf_decoder_files})
 target_link_libraries(tf_decoder PRIVATE -lcublas -lcudart -ltensorflow_framework)
