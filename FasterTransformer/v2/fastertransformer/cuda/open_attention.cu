@@ -325,7 +325,9 @@ void OpenMultiHeadAttention<OpType_>::multiHeadAttr_nofuse_kernelLauncher(
     if(OpType_ == OperationType::FP32)
     {
       const int word_per_block = 1;
+      //Maximum threads in a block
       assert(k <= 1024);
+      //Blocks can be organized into one- or two-dimensional grids of up to 65,535 blocks in each dimension
       assert(m / word_per_block * 3 <= 65536);
 
       dim3 grid(m / word_per_block * 3);

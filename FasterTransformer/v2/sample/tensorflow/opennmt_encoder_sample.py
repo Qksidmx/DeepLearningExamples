@@ -17,7 +17,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 import sys
-from utils.common import TransformerArgument
+from utils.common import TransformerArgument, cross_check
 from utils.common import DecodingArgument
 from utils.decoding import tf_decoding, op_decoding
 import utils.encoder
@@ -46,7 +46,7 @@ def restore_model_by_pkl(sess, variables):
 
         #assert(len(assign_op_list) == len(variables))
         sess.run(assign_op_list)
-    
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -104,7 +104,7 @@ if __name__ == "__main__":
         atol_threshold = 2e-2
 
     initializer_range = 0.02
-    
+
     source_inputter = WordEmbedder("source_vocabulary", embedding_size=512)
     target_inputter = WordEmbedder("target_vocabulary", embedding_size=512)
     inputter = ExampleInputter(source_inputter, target_inputter)
@@ -114,7 +114,7 @@ if __name__ == "__main__":
         })
     vocab_size = target_inputter.vocabulary_size
     source_file = "./utils/translation/test.en"
-    
+
     decoding_args = DecodingArgument(batch_size=batch_size,
                                      beam_width=beam_width,
                                      head_num=decoder_head_num,
@@ -191,7 +191,7 @@ if __name__ == "__main__":
         sess.run(iterator.initializer)
         if args.use_ft:
             restore_model_by_pkl(sess, all_vars)
-        
+
         iteration = 0
         while iteration < 3:
             try:
@@ -202,6 +202,7 @@ if __name__ == "__main__":
                 if args.use_ft:
                     print("[INFO] tf : ", result[0])
                     print("[INFO] op : ", result[1])
+                    cross_check("Encoder", result[0], result[1], atol_threshold)
                 else:
                     print("[INFO] tf : ", result)
                 iteration += 1

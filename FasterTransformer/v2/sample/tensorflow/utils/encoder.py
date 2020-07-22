@@ -117,10 +117,11 @@ def attention_layer(from_tensor,
     key_layer = transpose_for_scores(key_layer, batch_size, num_attention_heads,
                                      to_seq_length, size_per_head)
 
+    # attention_scores = [B, N, F, T]
     attention_scores = tf.matmul(query_layer, key_layer, transpose_b=True)
     attention_scores = tf.multiply(attention_scores,
                                    1.0 / math.sqrt(float(size_per_head)))
-
+    # apply attention_mask(with broadcast)
     if attention_mask is not None:
         # `attention_mask` = [B, 1, F, T]
         attention_mask = tf.expand_dims(attention_mask, axis=[1])
