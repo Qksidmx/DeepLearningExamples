@@ -29,7 +29,7 @@ from opennmt.inputters import ExampleInputter
 
 def restore_model_by_pkl(sess, variables):
     import pickle as pkl
-    with open("model.pkl", 'rb') as model_file:
+    with open("model_opennmt.pkl", 'rb') as model_file:
         model_dict = pkl.load(model_file)
 
         assign_op_list = []
@@ -257,8 +257,8 @@ if __name__ == "__main__":
 
     if args.saved_model_path:
         signature_def = tf.saved_model.signature_def_utils.predict_signature_def(
-            inputs={"input1": source_string_ph, "input2": source_length_ph, "input3": source_ids_ph},
-            outputs={"outputs": op_target_ids}
+            inputs={"source_string": source_string_ph, "source_length": source_length_ph, "source_ids": source_ids_ph},
+            outputs={"output_tokens": op_target_tokens, "output_length": op_target_length}
         )
 
     all_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
@@ -277,7 +277,8 @@ if __name__ == "__main__":
                     tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
                         signature_def
                 },
-                assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS))
+                assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS),
+                legacy_init_op=tf.tables_initializer())
             builder.save()
 
         iteration = 0
