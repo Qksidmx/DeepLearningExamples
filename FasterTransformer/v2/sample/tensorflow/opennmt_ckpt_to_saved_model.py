@@ -16,36 +16,16 @@ from __future__ import print_function
 import tensorflow as tf
 import numpy as np
 import argparse
-from utils.common import TransformerArgument
 from utils.common import DecodingArgument
 from utils.decoding import tf_decoding, op_decoding
-import utils.encoder
 from opennmt.utils import misc
 from opennmt.encoders.self_attention_encoder import SelfAttentionEncoder
 from opennmt.decoders.self_attention_decoder import SelfAttentionDecoder
 from opennmt.inputters import WordEmbedder
 from opennmt.inputters import ExampleInputter
 
-
-def restore_model_by_pkl(sess, variables):
-    import pickle as pkl
-    with open("model_opennmt.pkl", 'rb') as model_file:
-        model_dict = pkl.load(model_file)
-
-        assign_op_list = []
-        for var in variables:
-            print(var.name, end=' ')
-            if var.name in model_dict:
-                print("restore", end=' ')
-                assign_op_list.append(tf.assign(var, np.reshape(model_dict[var.name], var.shape)))
-                print("mean: {} , var: {} . ".format(np.mean(model_dict[var.name]), np.std(model_dict[var.name])),
-                      end=' ')
-            print()
-        assert (len(assign_op_list) == len(variables))
-        sess.run(assign_op_list)
-
-
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser()
     parser.add_argument('-batch', '--batch_size', type=int, default=1, metavar='NUMBER',
                         help='batch size (default: 1)')
@@ -68,6 +48,7 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--data_type', type=str, default="fp32", metavar='STRING',
                         help='data type (default: fp32)')
     parser.add_argument('--saved_model_path', type=str, help='SavedModel path(for serving)')
+    parser.add_argument('--ckpt_path', type=str, help='OpenNMT checkpoint path')
 
     args = parser.parse_args()
     print("\n=============== Argument ===============")
@@ -140,7 +121,7 @@ if __name__ == "__main__":
             source_embedding = source_inputter.make_inputs(source)
             memory_sequence_length = source["length"]
 
-        encoder = utils.encoder.SelfAttentionEncoder(
+        encoder = SelfAttentionEncoder(
             num_layers=encoder_num_layer,
             num_units=512,
             num_heads=8,
@@ -148,31 +129,7 @@ if __name__ == "__main__":
             dropout=0.1,
             attention_dropout=0.1,
             relu_dropout=0.1)
-        encoder_args = TransformerArgument(
-            batch_size=batch_size,
-            beam_width=beam_width,
-            head_num=encoder_head_num,
-            size_per_head=encoder_size_per_head,
-            num_layer=encoder_num_layer,
-            max_seq_len=max_seq_len,
-            dtype=tf_datatype
-
-        )
-        # Create encoder graph
-        source_embedding = encoder.preprocess(source_embedding, mode=mode)
-        memory, _, _ = encoder.encode(inputs=source_embedding, sequence_length=memory_sequence_length, mode=mode)
-        # Attention mask in FT does not support broadcast, shape should exactly be [B, N, S, S]
-        attention_mask = tf.sequence_mask(memory_sequence_length, maxlen=max_seq_len, dtype=tf_datatype)
-        attention_mask = tf.expand_dims(attention_mask, axis=1)
-        attention_mask = tf.expand_dims(attention_mask, axis=1)
-        attention_mask = tf.tile(attention_mask, [1, encoder_head_num, max_seq_len, 1])
-        # Use opennmt FT encoder
-        all_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-        memory = utils.encoder.op_opennmt_encoder(inputs=source_embedding,
-                                                  encoder_args=encoder_args,
-                                                  encoder_vars=all_vars[1:],
-                                                  attention_mask=attention_mask)
-        memory = tf.reshape(memory, [batch_size, -1, encoder_hidden_dim])
+        memory, _, _ = encoder.encode(source_embedding, memory_sequence_length, mode=mode)
         tf_encoder_result = memory
 
     tf_encoder_result = tf.reshape(
@@ -208,67 +165,27 @@ if __name__ == "__main__":
         opennmt_target_tokens = target_tokens
         opennmt_target_ids = target_ids
 
-        opennmt_variables = tf.global_variables()
-
-    ## TF Decoding ###    
-    finalized_tf_output_ids, finalized_tf_sequence_lengths, tf_output_ids, \
-    tf_parent_ids, tf_sequence_lengths = tf_decoding(tf_encoder_result,
-                                                     memory_sequence_length,
-                                                     target_inputter.embedding,
-                                                     decoding_args,
-                                                     decoder_type=1,
-                                                     kernel_initializer_range=kernel_initializer_range,
-                                                     bias_initializer_range=bias_initializer_range)
-
-    tf_target_ids = finalized_tf_output_ids
-    tf_target_length = finalized_tf_sequence_lengths
-    tf_target_tokens = target_vocab_rev.lookup(tf.cast(tf_target_ids, tf.int64))
+    ## TF Decoding ###
     ## end of tf decoding ##
 
     ## op decoding ##
-    all_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-    decoder_var_start_id = 0
-
-    while all_vars[decoder_var_start_id].name.find("transformer/decoding") == -1:
-        decoder_var_start_id += 1
-    encoder_variables = all_vars[:decoder_var_start_id]
-    decoder_variables = all_vars[decoder_var_start_id:]
-
-    finalized_op_output_ids, finalized_op_sequence_lengths, op_output_ids, \
-    op_parent_ids, op_sequence_lengths = op_decoding(tf_encoder_result,
-                                                     memory_sequence_length,
-                                                     target_inputter.embedding,
-                                                     decoder_variables,  # first one is embedding table
-                                                     decoding_args)
-
-    op_target_ids = finalized_op_output_ids
-    op_target_length = finalized_op_sequence_lengths
-    op_target_tokens = target_vocab_rev.lookup(tf.cast(op_target_ids, tf.int64))
-
     ## end of op decoding
 
     opennmt_target_ids = tf.cast(opennmt_target_ids, tf.int32)
-    tf_target_ids = tf.cast(tf_target_ids, tf.int32)
-    op_target_ids = tf.cast(op_target_ids, tf.int32)
-
     opennmt_target_length = tf.minimum(opennmt_target_length + 1, tf.shape(opennmt_target_ids)[2])
-    tf_target_length = tf.minimum(tf_target_length + 1, tf.shape(tf_target_ids)[2])
-    op_target_length = tf.minimum(op_target_length + 1, tf.shape(op_target_ids)[2])
-
     if args.saved_model_path:
         signature_def = tf.saved_model.signature_def_utils.predict_signature_def(
             inputs={"source_string": source_string_ph, "source_length": source_length_ph, "source_ids": source_ids_ph},
-            outputs={"output_tokens": op_target_tokens[...,:tf.math.reduce_max(op_target_length)], "output_length": op_target_length}
+            outputs={"output_tokens": opennmt_target_tokens, "output_length": opennmt_target_length}
         )
-
-    all_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
+        saver = tf.train.Saver()
         sess.run(tf.global_variables_initializer())
+        saver.restore(sess, args.ckpt_path)
         sess.run(tf.tables_initializer())
         sess.run(iterator.initializer)
-        restore_model_by_pkl(sess, all_vars)
         if args.saved_model_path:
             builder = tf.saved_model.builder.SavedModelBuilder(args.saved_model_path)
             builder.add_meta_graph_and_variables(
@@ -280,26 +197,18 @@ if __name__ == "__main__":
                 assets_collection=tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS),
                 legacy_init_op=tf.tables_initializer())
             builder.save()
-
         iteration = 0
         while iteration < 3:
             try:
                 opennmt_batch_tokens, opennmt_batch_length, \
-                tf_batch_tokens, tf_batch_length, \
-                op_batch_tokens, op_batch_length, source_result = sess.run(
-                    [opennmt_target_tokens, opennmt_target_length,
-                     tf_target_tokens, tf_target_length,
-                     op_target_tokens, op_target_length, source])
+                source_result = sess.run([opennmt_target_tokens, opennmt_target_length,
+                                                                            source])
+                print(source_result)
                 print("[INFO] opennmt: ", end='')
                 for tokens, length in zip(opennmt_batch_tokens, opennmt_batch_length):
-                    misc.print_bytes(b" ".join(tokens[0][:length[0] - 1]))
-                print("[INFO] tf     : ", end='')
-                for tokens, length in zip(tf_batch_tokens, tf_batch_length):
-                    misc.print_bytes(b" ".join(tokens[0][:length[0] - 1]))
-                print("[INFO] op     : ", end='')
-                for tokens, length in zip(op_batch_tokens, op_batch_length):
                     misc.print_bytes(b" ".join(tokens[0][:length[0] - 1]))
 
                 iteration += 1
             except tf.errors.OutOfRangeError:
                 break
+
