@@ -20,6 +20,9 @@
 namespace fastertransformer{
 
 template <typename T>
+void single_softmax_kernel_kernelLauncher(T* qk_buf_, int batch_size, int q_seq_len,int k_seq_len,cudaStream_t stream);
+
+template <typename T>
 void add_bias_act_kernelLauncher(T* out, const T* bias, int m, int n, cudaStream_t stream);
 
 template <typename T>

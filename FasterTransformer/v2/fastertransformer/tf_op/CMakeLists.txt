@@ -43,10 +43,16 @@ set(tf_opennmt_transformer_files
   ../cuda/open_attention.cu
 )
 
+set(attention_files
+  attention_op.cc
+  attention.cu.cc
+  ../cuda/cuda_kernels.cu
+)
+
 add_definitions(-D_GLIBCXX_USE_CXX11_ABI=0)
 add_definitions(-DGOOGLE_CUDA=1)
 
-add_library(tf_fastertransformer SHARED ${tf_bert_transformer_files} ${tf_opennmt_transformer_files})
+add_library(tf_fastertransformer SHARED ${tf_bert_transformer_files} ${tf_opennmt_transformer_files} ${attention_file})
 target_link_libraries(tf_fastertransformer PRIVATE -lcublas -lcudart -ltensorflow_framework)
 add_library(tf_decoder SHARED ${tf_decoder_files})
 target_link_libraries(tf_decoder PRIVATE -lcublas -lcudart -ltensorflow_framework)

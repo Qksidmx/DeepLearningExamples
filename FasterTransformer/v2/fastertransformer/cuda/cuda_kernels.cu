@@ -126,6 +126,68 @@ T blockReduceMax(T val)
 
 template <typename T>
 __global__
+void single_softmax_kernel(T* qk_buf_, int batch_size, int q_seq_len, int k_seq_len)
+{
+    int qk_offset = blockIdx.x * q_seq_len * k_seq_len;
+
+    __shared__ float s_sum, s_max;
+    for(int i = 0; i < q_seq_len; ++i)
+    {
+      float qk = threadIdx.x < k_seq_len ? (float)qk_buf_[threadIdx.x + qk_offset] : 0.0f;
+      float max_val = blockReduceMax<float>(qk);
+
+      if(threadIdx.x == 0)
+        s_max = max_val;
+      __syncthreads();
+
+      qk = threadIdx.x < k_seq_len ? __expf(qk - s_max) : 0.0f;
+      float sum_val = blockReduceSum<float>(qk);
+
+      if(threadIdx.x == 0)
+      {
+        s_sum = sum_val + 1e-6f;
+      }
+      __syncthreads();
+
+      if(threadIdx.x < k_seq_len)
+        qk_buf_[threadIdx.x + qk_offset] = (T)(qk / s_sum);
+
+      qk_offset += k_seq_len;
+    }
+}
+
+template <typename T>
+__global__
+void single_softmax_kernel_v2(T* qk_buf_, int batch_size, int q_seq_len, int k_seq_len)
+{
+    //int batch_id = blockIdx.x / q_seq_len;
+    //int seq_id = blockIdx.x % q_seq_len;
+    int qk_offset = blockIdx.x * k_seq_len;
+
+    __shared__ float s_sum, s_max;
+    float qk = threadIdx.x < k_seq_len ? (float)qk_buf_[threadIdx.x + qk_offset] : 0.0f;
+    float max_val = blockReduceMax<float>(qk);
+    if(threadIdx.x == 0)
+      s_max = max_val;
+
+    __syncthreads();
+
+    float qk_tmp = threadIdx.x < k_seq_len ? __expf((float)(qk - s_max)) : 0.0f;
+    float sum_val = blockReduceSum<float>(qk_tmp);
+
+    if(threadIdx.x == 0)
+    {
+      s_sum = sum_val + 1e-6f;
+    }
+    __syncthreads();
+
+    if(threadIdx.x < k_seq_len)
+      qk_buf_[threadIdx.x + qk_offset] = (T)(qk_tmp / s_sum);
+}
+
+
+template <typename T>
+__global__
 void add_bias_relu_act(T* out, const T* bias, int m, int n)
 {
   T val, reg_bias;
@@ -400,6 +462,35 @@ void broadcast_kernel(T* log_probs, T* cum_log_probs, const int batch_size, cons
     log_probs[tid] += cum_log_probs[bid];
 }
 
+template <typename T>
+void single_softmax_kernel_kernelLauncher(T* qk_buf_, int batch_size, int q_seq_len,int k_seq_len, cudaStream_t stream)
+{
+    dim3 grid;
+    dim3 block;
+    if(k_seq_len <= 32)
+      block.x = 32;
+    else if(k_seq_len > 32 && k_seq_len <= 64)
+      block.x = 64;
+    else if(k_seq_len > 64 && k_seq_len <= 128)
+      block.x = 128;
+    else if(k_seq_len > 128 && k_seq_len <= 256)
+      block.x = 256;
+    else if(k_seq_len > 256 && k_seq_len <= 512)
+      block.x = 512;
+    else
+      block.x = 1024;
+
+    if(batch_size <= 120)
+    {
+      grid.x = batch_size * q_seq_len;
+      single_softmax_kernel_v2<T><<<grid, block, 0, stream>>>(qk_buf_, batch_size, q_seq_len, k_seq_len);
+    }
+    else
+    {
+      grid.x = batch_size;
+      single_softmax_kernel<T><<<grid, block, 0, stream>>>(qk_buf_, batch_size, q_seq_len, k_seq_len);
+    }
+}
 
 template <typename T>
 void add_bias_relu_act_kernelLauncher(T* out, const T* bias, int m, int n, cudaStream_t stream)
@@ -801,6 +892,12 @@ void sine_position_encoder(
   assert(n <= 1024);
   sine_position_encoder_kernel<T><<<grid, block, 0, stream>>>(output, step, n);
 }
+
+template void single_softmax_kernel_kernelLauncher<float>(
+    float* qk_buf_, int batch_size, int q_seq_len, int k_seq_len, cudaStream_t stream);
+
+template void single_softmax_kernel_kernelLauncher<half>(
+    half* qk_buf_, int batch_size, int q_seq_len, int k_seq_len, cudaStream_t stream);
 
 template void add_bias_act_kernelLauncher<float>(
   float* out, const float* bias, int m, int n, cudaStream_t stream);

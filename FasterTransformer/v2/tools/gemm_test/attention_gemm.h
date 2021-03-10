@@ -26,15 +26,17 @@
 using namespace std;
 
 template<typename T>
-void generate_encoder_gemm_config(int batch_size,
+void generate_attention_gemm_config(int batch_size,
                                     int seq_len,
                                     int head_num,
-                                    int size_per_head)
+                                    int size_per_head,
+                                    int poly_m,
+                                    int res_cnt)
 {
-  FILE* fd = fopen("gemm_config.in", "w");
+  FILE* fd = fopen("attention_gemm_config.in", "w");
   if(fd == NULL)
   {
-    printf("Cannot write to file gemm_config.in\n");
+    printf("Cannot write to file attention_gemm_config.in\n");
     return ;
   }
 
@@ -42,42 +44,26 @@ void generate_encoder_gemm_config(int batch_size,
   check_cuda_error(cudaGetDeviceProperties(&prop, 0));
   printf("Device %s\n", prop.name);
 
-  const int gemm_num = 5;
+  const int gemm_num = 2;
   int M[gemm_num];
   int N[gemm_num];
   int K[gemm_num];
-  int batchCount[gemm_num] = {1,1,1,1,1};
+  int batchCount[gemm_num] = {1,1};
   char mess[gemm_num][256];
   
-  //gemm1 
-  M[0] = batch_size * seq_len;
-  K[0] = head_num * size_per_head;
-  N[0] = K[0];
-  strcpy(mess[0], "from_tensor * weightQ/K/V, attr * output_kernel");
+  //gemm1
+  M[0] = poly_m;
+  N[0] = seq_len;
+  K[0] = size_per_head * head_num;
+  batchCount[0] = batch_size;
+  strcpy(mess[0], "attention batched Gemm1");
 
   //gemm2
-  M[1] = M[0];
-  K[1] = K[0];
-  N[1] = 4 * N[0];
-  strcpy(mess[1], "attr_output * inter_kernel");
-
-  //gemm3
-  M[2] = M[0];
-  K[2] = 4 * K[0];
-  N[2] = N[0];
-  strcpy(mess[2], "inter_matmul * output_kernel");
-
-  M[3] = seq_len;
-  N[3] = seq_len;
-  K[3] = size_per_head;
-  batchCount[3] = batch_size * head_num;
-  strcpy(mess[3], "attention batched Gemm1");
-
-  M[4] = seq_len;
-  N[4] = size_per_head; 
-  K[4] = seq_len;
-  batchCount[4] = batch_size * head_num;
-  strcpy(mess[4], "attention batched Gemm2");
+  M[1] = res_cnt;
+  N[1] = size_per_head * head_num;
+  K[1] = poly_m;
+  batchCount[1] = batch_size;
+  strcpy(mess[1], "attention batched Gemm2");
 
   cublasHandle_t cublas_handle;
   check_cuda_error(cublasCreate(&cublas_handle));
@@ -132,30 +118,17 @@ void generate_encoder_gemm_config(int batch_size,
       gettimeofday(&start, NULL);
       for(int ite = 0; ite < ites; ++ite)
       {
-        if(i < 3)
-        {
-          status = cublasGemmEx(cublas_handle, 
-                CUBLAS_OP_N, CUBLAS_OP_N,
-                n, m, k, 
-                &alpha, 
-                d_B, BType, n, 
-                d_A, AType, k, 
-                &beta, 
-                d_C, CType, n, 
-                computeType, 
-                static_cast<cublasGemmAlgo_t>(algo));
-        }
-        else if(i == 3)
+        if(i == 0)
         {
           status = cublasGemmStridedBatchedEx(cublas_handle,
                 CUBLAS_OP_T, CUBLAS_OP_N,
-                seq_len, seq_len, size_per_head,
+                n, m, k,
                 &alpha,
-                d_B, BType, size_per_head, seq_len * size_per_head,
-                d_A, AType, size_per_head, seq_len * size_per_head,
+                d_B, BType, k, n * k,
+                d_A, AType, k, m * k,
                 &beta,
-                d_C, CType, seq_len, seq_len * seq_len,
-                batch_size * head_num,
+                d_C, CType, n, m * n,
+                batchCount[i],
                 computeType,
                 static_cast<cublasGemmAlgo_t>(algo));
         }
@@ -163,13 +136,13 @@ void generate_encoder_gemm_config(int batch_size,
         {
           status = cublasGemmStridedBatchedEx(cublas_handle,
                 CUBLAS_OP_N, CUBLAS_OP_N,
-                size_per_head, seq_len, seq_len,
+                n, m, k,
                 &alpha,
-                d_B, BType, size_per_head, seq_len * size_per_head,
-                d_A, AType, seq_len, seq_len * seq_len,
+                d_B, BType, n, n*k,
+                d_A, AType, k, m*k,
                 &beta,
-                d_C, CType, size_per_head, seq_len * size_per_head,
-                batch_size * head_num,
+                d_C, CType, n, n * m,
+                batchCount[i],
                 computeType,
                 static_cast<cublasGemmAlgo_t>(algo));
         }

@@ -21,6 +21,7 @@
 
 #include "fastertransformer/bert_encoder_transformer.h"
 #include "fastertransformer/opennmt_encoder_transformer.h"
+#include "fastertransformer/attention.h"
 #include <cuda_fp16.h>
 namespace fastertransformer{
 
