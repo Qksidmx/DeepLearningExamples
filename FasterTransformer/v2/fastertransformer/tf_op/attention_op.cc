@@ -56,7 +56,7 @@ REGISTER_OP("Attention")
       }
       // calculate output size
       shape_inference::DimensionHandle output_dim1;
-      c->set_output(0, c->MakeShape({batch_size * q_seq_len, hidden_size}));
+      c->set_output(0, c->MakeShape({batch_size, q_seq_len, hidden_size}));
 
 
       return Status::OK();

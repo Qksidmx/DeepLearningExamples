@@ -161,7 +161,7 @@ if __name__ == "__main__":
             op_encoder_result = utils.encoder.op_opennmt_encoder(inputs=source_embedding, encoder_args=encoder_args,
                                                       encoder_vars=all_vars[1:],
                                                       attention_mask=attention_mask)
-            op_encoder_result = tf.reshape(memory, (batch_size, -1, encoder_hidden_dim))
+            op_encoder_result = tf.reshape(op_encoder_result, (batch_size, -1, encoder_hidden_dim))
             all_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
         else:
             encoder = SelfAttentionEncoder(

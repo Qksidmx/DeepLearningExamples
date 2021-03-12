@@ -65,7 +65,7 @@ public:
                                                                             hidden_size_(hidden_size),k_seq_len_(k_seq_len), attention_type_(attention_type)
   {
 #ifndef NDEBUG
-    PRINT_FUNC_NAME_();
+    PRINT_FUNC_NAME_("Attention");
 #endif
 
 //    int m = batch_size_ * q_seq_len_;
@@ -73,7 +73,7 @@ public:
 //    int n = batch_size_ * k_seq_len_
 
     int buf_size = batch_size * q_seq_len_ * k_seq_len_;
-    int out_size = batch_size_ * q_seq_len_ * hidden_size_;
+//    int out_size = batch_size_ * q_seq_len_ * hidden_size_;
 
     try
     {
@@ -113,21 +113,13 @@ public:
     }
   }
 
-  void initialize(AttentionInitParam<DataType_> param)
-  {
-#ifndef NDEBUG
-    PRINT_FUNC_NAME_();
-#endif
-    param_ = param;
-  }
-
   /**
    * do forward 
    **/
   void forward(AttentionInitParam<DataType_> param)
   {
 #ifndef NDEBUG
-    PRINT_FUNC_NAME_();
+    PRINT_FUNC_NAME_("Attention");
 #endif
     try
     {
@@ -156,8 +148,18 @@ public:
           batch_size_,
           computeType_,
           static_cast<cublasGemmAlgo_t>(cublasAlgo_[0])));
+		  
+#ifndef NDEBUG
+	  cudaDeviceSynchronize();
+	  check_cuda_error(cudaGetLastError());
+#endif
 
       single_softmax_kernel_kernelLauncher(qk_buf_, batch_size_, q_seq_len_, k_seq_len_, param.stream);
+	  
+#ifndef NDEBUG
+	  cudaDeviceSynchronize();
+	  check_cuda_error(cudaGetLastError());
+#endif
 
       check_cuda_error(cublasGemmStridedBatchedEx(param.cublas_handle,
           CUBLAS_OP_N, CUBLAS_OP_N,
@@ -181,8 +183,6 @@ public:
       throw error;
     }
   }
-
-
 
   ~Attention()
   {

@@ -123,7 +123,7 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
     return (loss, per_example_loss, logits, probabilities)
 
 
-def get_available():
+def get_available_gpus():
     local_device_protos = device_lib.list_local_devices()
     return [x.name for x in local_device_protos if x.device_type == 'GPU']
 
@@ -199,7 +199,7 @@ def fast_transformer_model_trans(input_tensor,
     # forth from a 3D tensor to a 2D tensor. Re-shapes are normally free on
     # the GPU/CPU but may not be free on the TPU, so we want to minimize them to
     # help the optimizer.
-    prev_output2 = prev_output = reshape_to_matrix(input_tensor)
+    prev_output = reshape_to_matrix(input_tensor)
 
     all_layer_outputs = []
     for layer_idx in range(num_hidden_layers):
@@ -263,10 +263,9 @@ def fast_transformer_model_trans(input_tensor,
             # FASTINFER: fast transformer encoder inference
             trainable_vars = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
-            layer_input2 = prev_output2
-            layer_output2 = transformer_op_module.bert_transformer(
-                layer_input2,
-                layer_input2,
+            layer_output = transformer_op_module.bert_transformer(
+                layer_input,
+                layer_input,
                 trainable_vars[0], trainable_vars[2], trainable_vars[4], trainable_vars[1], trainable_vars[3], trainable_vars[5],
                 attention_mask,
                 trainable_vars[6], trainable_vars[7], trainable_vars[8], trainable_vars[9], trainable_vars[10], trainable_vars[11],
@@ -274,10 +273,7 @@ def fast_transformer_model_trans(input_tensor,
                 from_seq_len=seq_length, to_seq_len=seq_length, head_num=num_attention_heads, size_per_head=attention_head_size)
 
             prev_output = layer_output
-            prev_output2 = layer_output2
             all_layer_outputs.append(layer_output)
-
-    return [prev_output, prev_output2]
 
     if do_return_all_layers:
         final_outputs = []
