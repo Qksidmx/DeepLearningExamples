@@ -11,10 +11,10 @@ def get_input_data(batch_size, seq_len, hidden_dim, poly_m):
     from_tensor = tf.convert_to_tensor(from_data, dtype=tf_datatype)
 
     # mask = np.random.randint(2, size=(batch_size, seq_len, seq_len))
-    mask = np.ones(batch_size, seq_len, seq_len)
+    mask = np.ones((batch_size, seq_len, seq_len))
     attention_mask = tf.convert_to_tensor(mask, dtype=tf_datatype)
 
-    poly_code = np.random.randn((poly_m, hidden_dim))
+    poly_code = np.random.randn(poly_m, hidden_dim)
     poly_code = np.array([poly_code,] * batch_size)
     tf_poly_code = tf.convert_to_tensor(poly_code, dtype=tf_datatype)
 
