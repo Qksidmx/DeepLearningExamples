@@ -17,7 +17,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 import sys
-from utils.common import TransformerArgument, cross_check
+from utils.common import TransformerArgument, cross_check, time_test
 from utils.common import DecodingArgument
 from utils.decoding import tf_decoding, op_decoding
 import utils.encoder
@@ -71,10 +71,19 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--data_type', type=str, default="fp32", metavar='STRING',
                         help='data type (default: fp32)')
     parser.add_argument('--use_ft', default=False, action='store_true', help='use FT opennmt encoder')
-
+    parser.add_argument('-time', '--test_time', type=int, default=0, metavar='BOOL',
+                        help='test the time or not. (default: False (0)), True is 1.')
+    parser.add_argument('--ft_package', default=False, action='store_true', help='if True, ft package will be imported')
+    
     args = parser.parse_args()
     print("\n=============== Argument ===============")
     print(args)
+
+    # if use ft_package is True then will not use *.so file
+    if args.ft_package:
+        import utils.encoder_pip_interface
+        utils.encoder.op_encoder = utils.encoder_pip_interface.op_encoder
+        utils.encoder.op_opennmt_encoder = utils.encoder_pip_interface.op_opennmt_encoder
 
     start_of_sentence_id = 1
     end_of_sentence_id = 2
@@ -104,9 +113,13 @@ if __name__ == "__main__":
         atol_threshold = 2e-2
 
     initializer_range = 0.02
+    # generate random data
+    memory_sequence_length = max_seq_len
+    source_embedding = np.random.randn(batch_size, memory_sequence_length, encoder_hidden_dim)
+    source_embedding = tf.convert_to_tensor(source_embedding, dtype=tf_datatype)
 
-    source_inputter = WordEmbedder("source_vocabulary", embedding_size=512)
-    target_inputter = WordEmbedder("target_vocabulary", embedding_size=512)
+    source_inputter = WordEmbedder("source_vocabulary", embedding_size=encoder_hidden_dim)
+    target_inputter = WordEmbedder("target_vocabulary", embedding_size=encoder_hidden_dim)
     inputter = ExampleInputter(source_inputter, target_inputter)
     inputter.initialize({
         "source_vocabulary": "./utils/translation/wmtende.vocab",
@@ -129,11 +142,11 @@ if __name__ == "__main__":
 
     mode = tf.estimator.ModeKeys.PREDICT
     with tf.variable_scope("transformer/encoder"):
-        dataset = inputter.make_inference_dataset(source_file, batch_size)
-        iterator = dataset.make_initializable_iterator()
-        source = iterator.get_next()
-        source_embedding = source_inputter.make_inputs(source)
-        memory_sequence_length = source["length"]
+        # dataset = inputter.make_inference_dataset(source_file, batch_size)
+        # iterator = dataset.make_initializable_iterator()
+        # source = iterator.get_next()
+        # source_embedding = source_inputter.make_inputs(source)
+        # memory_sequence_length = source["length"]
 
         encoder_args = TransformerArgument(batch_size=batch_size, beam_width=beam_width,
                                            head_num=encoder_head_num,
@@ -145,34 +158,34 @@ if __name__ == "__main__":
         if args.use_ft:
             encoder = utils.encoder.SelfAttentionEncoder(
                 num_layers=encoder_num_layer,
-                num_units=512,
+                num_units=encoder_hidden_dim,
                 num_heads=8,
                 ffn_inner_dim=2048,
                 dropout=0.1,
                 attention_dropout=0.1,
                 relu_dropout=0.1)
-            attention_mask = tf.sequence_mask(memory_sequence_length, maxlen=max_seq_len, dtype=tf_datatype)
+            attention_mask = tf.sequence_mask([memory_sequence_length], maxlen=max_seq_len, dtype=tf_datatype)
             attention_mask = tf.expand_dims(attention_mask, axis=1)
             attention_mask = tf.expand_dims(attention_mask, axis=1)
             attention_mask = tf.tile(attention_mask, [1, encoder_head_num, max_seq_len, 1])
             source_embedding = encoder.preprocess(source_embedding, mode=mode)
-            memory, _, _ = encoder.encode(source_embedding, sequence_length=memory_sequence_length, mode=mode)
+            memory, _, _ = encoder.encode(source_embedding, sequence_length=[memory_sequence_length], mode=mode)
             all_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
             op_encoder_result = utils.encoder.op_opennmt_encoder(inputs=source_embedding, encoder_args=encoder_args,
-                                                      encoder_vars=all_vars[1:],
+                                                      encoder_vars=all_vars,
                                                       attention_mask=attention_mask)
             op_encoder_result = tf.reshape(op_encoder_result, (batch_size, -1, encoder_hidden_dim))
             all_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
         else:
             encoder = SelfAttentionEncoder(
                 num_layers=encoder_num_layer,
-                num_units=512,
+                num_units=encoder_hidden_dim,
                 num_heads=8,
                 ffn_inner_dim=2048,
                 dropout=0.1,
                 attention_dropout=0.1,
                 relu_dropout=0.1)
-            memory, _, _ = encoder.encode(source_embedding, memory_sequence_length, mode=mode)
+            memory, _, _ = encoder.encode(source_embedding, [memory_sequence_length], mode=mode)
             all_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
 
         tf_encoder_result = memory
@@ -187,8 +200,8 @@ if __name__ == "__main__":
         if not args.use_ft:
             saver = tf.train.Saver(all_vars)
             saver.restore(sess, "translation/ckpt/model.ckpt-500000")
-        sess.run(tf.tables_initializer())
-        sess.run(iterator.initializer)
+        # sess.run(tf.tables_initializer())
+        # sess.run(iterator.initializer)
         if args.use_ft:
             restore_model_by_pkl(sess, all_vars)
 
@@ -208,3 +221,10 @@ if __name__ == "__main__":
                 iteration += 1
             except tf.errors.OutOfRangeError:
                 break
+        if args.test_time:
+            prtint("RUN TIME TEST ...")
+            tf_time = time_test(sess, tf_encoder_result, 100)
+            op_time = time_test(sess, op_encoder_result, 100)
+
+            print("tf_opennmt time cost: ", tf_time)
+            print("op_opennmt time cost: ", op_time)
